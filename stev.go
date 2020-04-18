@@ -11,15 +11,43 @@ import (
 	"unicode"
 )
 
+// LoadEnv loads the values and put them into target using default Loader.
+func LoadEnv(prefix string, target interface{}) error {
+	return defaultLoader.LoadEnv(prefix, target)
+}
+
 // Loader is [TBD]
 //
-//TODO: config: prefix, tag name, field error ignore, no override,
+//TODO: config: field error ignore (best effort), no override,
 // tag name conversion (e.g., from FieldName to FIELD_NAME), ignore untagged
 type Loader struct {
 	StructFieldTagKey        string
 	NamespaceSeparator       string
 	IgnoredStructFieldName   string
 	AnonymousStructFieldName string
+}
+
+// StructFieldTagKeyDefault is the string we use to identify the struct field tag
+// we must process.
+const StructFieldTagKeyDefault = "env"
+
+// NamespaceSeparatorDefault is [TBD].
+const NamespaceSeparatorDefault = "_"
+
+// IgnoredStructFieldNameDefault is used to indicate struct fields which
+// should be ignored.
+const IgnoredStructFieldNameDefault = "-"
+
+// AnonymousStructFieldNameDefault is used for to treat a field which has
+// the type of struct as embedded. It's affecting the way we construct the
+// key used to lookup the value from environment variables.
+const AnonymousStructFieldNameDefault = "&"
+
+var defaultLoader = Loader{
+	StructFieldTagKey:        StructFieldTagKeyDefault,
+	NamespaceSeparator:       NamespaceSeparatorDefault,
+	IgnoredStructFieldName:   IgnoredStructFieldNameDefault,
+	AnonymousStructFieldName: AnonymousStructFieldNameDefault,
 }
 
 // LoadEnv loads values into target from environment variables.
@@ -34,11 +62,11 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 
 	tType := reflect.TypeOf(target)
 	if tType.Kind() != reflect.Ptr {
-		return false, errors.New("stev: requires pointer target " + tType.Kind().String())
+		return false, errors.New("stev: requires pointer target")
 	}
 	tVal := reflect.ValueOf(target)
 	if tVal.IsNil() && !tVal.CanSet() {
-		return false, errors.New("stev: target is not settable")
+		return false, errors.New("stev: requires settable target")
 	}
 
 	tValDef := tVal.Elem()
@@ -65,12 +93,12 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 
 		fTag := fInfo.Tag.Get(tagName)
 		var fTagName string
-		var fTagOpts fieldOptions
+		var fTagFlags fieldTagFlags
 		if fTag != "" {
 			fTagParts := strings.SplitN(fTag, ",", 2)
 			fTagName = fTagParts[0]
 			if len(fTagParts) > 1 {
-				fTagOpts, _ = parseFieldOptions(fTagParts[1])
+				fTagFlags, _ = parseFieldTagFlags(fTagParts[1])
 			}
 		}
 		if fTagName != "" {
@@ -79,58 +107,58 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			}
 			if fTagName == l.AnonymousStructFieldName {
 				fTagName = ""
-				fTagOpts.Anonymous = true
+				fTagFlags.Anonymous = true
 			}
 		} else {
 			if !fInfo.Anonymous {
 				fTagName = l.convertFieldName(fInfo.Name)
 			} else {
-				fTagOpts.Anonymous = true
+				fTagFlags.Anonymous = true
 			}
 		}
 
 		fType := fInfo.Type
 		if fType.Kind() == reflect.Struct || (fType.Kind() == reflect.Ptr && fType.Elem().Kind() == reflect.Struct) {
 			if strVal, exists := os.LookupEnv(prefix + fTagName); exists {
-				fieldLoaded, err := l.loadFieldValue(strVal, fInfo.Name, fType, fVal)
+				fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 				if err != nil {
-					return loadedAny, err
+					return loadedAny, fmt.Errorf("stev: unable to load field value (field %q): %w", fInfo.Name, err)
 				}
 				loadedAny = loadedAny || fieldLoaded
 				continue
 			}
 
 			var fieldPrefix string
-			if fTagOpts.Anonymous {
+			if fTagFlags.Anonymous {
 				fieldPrefix = prefix
 			} else {
 				fieldPrefix = prefix + fTagName + nsSep
 			}
 			fieldLoaded, err := l.loadEnv(fieldPrefix, fVal.Addr().Interface())
 			if err != nil {
-				return loadedAny, fmt.Errorf("stev: unable to load value for field %s: %w", fInfo.Name, err)
+				return loadedAny, fmt.Errorf("stev: unable to load field value (field %q): %w", fInfo.Name, err)
 			}
-			if fieldLoaded && fTagOpts.Required {
-				return loadedAny, errors.New("stev: field is required: " + fTagName)
+			if fieldLoaded && fTagFlags.Required {
+				return loadedAny, fmt.Errorf("stev: field is required (field %q)", fInfo.Name)
 			}
 			loadedAny = loadedAny || fieldLoaded
 			continue
 		}
 
-		if fTagOpts.Anonymous {
-			return loadedAny, errors.New("stev: anonymous can only be used to field which type is struct")
+		if fTagFlags.Anonymous {
+			return loadedAny, fmt.Errorf("stev: anonymous can only be used to field which type is struct or pointer to struct (field %q)", fInfo.Name)
 		}
 
 		if strVal, exists := os.LookupEnv(prefix + fTagName); exists {
-			fieldLoaded, err := l.loadFieldValue(strVal, fInfo.Name, fType, fVal)
+			fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 			if err != nil {
-				return loadedAny, err
+				return loadedAny, fmt.Errorf("stev: unable to load field value (field %q): %w", fInfo.Name, err)
 			}
 			loadedAny = loadedAny || fieldLoaded
 			continue
 		} else {
-			if fTagOpts.Required {
-				return loadedAny, errors.New("stev: field is required: " + fTagName)
+			if fTagFlags.Required {
+				return loadedAny, fmt.Errorf("stev: field is required (field %q)", fInfo.Name)
 			}
 		}
 	}
@@ -139,18 +167,19 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 }
 
 func (l Loader) loadFieldValue(
-	strVal string, fieldName string, fieldType reflect.Type, fieldValue reflect.Value,
+	strVal string, fieldValue reflect.Value,
 ) (loaded bool, err error) {
+	fieldType := fieldValue.Type()
 	if fieldType.Kind() == reflect.Ptr {
 		valType := fieldType.Elem()
 		if fieldValue.IsNil() {
 			valInst := reflect.New(valType)
-			loaded, err = l.loadFieldValue(strVal, fieldName, valType, valInst.Elem())
+			loaded, err = l.loadFieldValue(strVal, valInst.Elem())
 			if loaded {
 				fieldValue.Set(valInst)
 			}
 		} else {
-			loaded, err = l.loadFieldValue(strVal, fieldName, valType, fieldValue.Elem())
+			loaded, err = l.loadFieldValue(strVal, fieldValue.Elem())
 		}
 		return
 	}
@@ -159,7 +188,7 @@ func (l Loader) loadFieldValue(
 	case time.Duration:
 		d, err := time.ParseDuration(strVal)
 		if err != nil {
-			return false, errors.New("stev: unable to parse duration for field " + fieldName)
+			return false, err
 		}
 		fieldValue.Set(reflect.ValueOf(&d).Elem())
 		return true, nil
@@ -173,8 +202,7 @@ func (l Loader) loadFieldValue(
 		}
 		v, err := strconv.ParseBool(strVal)
 		if err != nil {
-			return false, fmt.Errorf("stev: value conversion error for field %s: %w",
-				fieldName, err)
+			return false, err
 		}
 		fieldValue.SetBool(v)
 		return true, nil
@@ -185,8 +213,7 @@ func (l Loader) loadFieldValue(
 		}
 		v, err := strconv.ParseFloat(strVal, fieldType.Bits())
 		if err != nil {
-			return false, fmt.Errorf("stev: value conversion error for field %s: %w",
-				fieldName, err)
+			return false, err
 		}
 		fieldValue.SetFloat(v)
 		return true, nil
@@ -197,8 +224,7 @@ func (l Loader) loadFieldValue(
 		}
 		v, err := strconv.ParseInt(strVal, 0, fieldType.Bits())
 		if err != nil {
-			return false, fmt.Errorf("stev: value conversion error for field %s: %w",
-				fieldName, err)
+			return false, err
 		}
 		fieldValue.SetInt(v)
 		return true, nil
@@ -209,8 +235,7 @@ func (l Loader) loadFieldValue(
 		}
 		v, err := strconv.ParseUint(strVal, 0, fieldType.Bits())
 		if err != nil {
-			return false, fmt.Errorf("stev: value conversion error for field %s: %w",
-				fieldName, err)
+			return false, err
 		}
 		fieldValue.SetUint(v)
 		return true, nil
@@ -218,8 +243,7 @@ func (l Loader) loadFieldValue(
 		fieldValue.SetString(strVal)
 		return true, nil
 	default:
-		return false, fmt.Errorf("stev: unsupported type for field %s: %v",
-			fieldName, fieldType.Name())
+		return false, fmt.Errorf("unsupported field value type %q", fieldType.Name())
 	}
 }
 
@@ -254,44 +278,16 @@ func (l Loader) convertFieldName(fieldName string) string {
 	return tagName
 }
 
-// StructFieldTagKeyDefault is the string we use to identify the struct field tag
-// we must process.
-const StructFieldTagKeyDefault = "env"
-
-// NamespaceSeparatorDefault is [TBD].
-const NamespaceSeparatorDefault = "_"
-
-// IgnoredStructFieldNameDefault is used to indicate struct fields which
-// should be ignored.
-const IgnoredStructFieldNameDefault = "-"
-
-// AnonymousStructFieldNameDefault is used for to treat a field which has
-// the type of struct as embedded. It's affecting the way we construct the
-// key used to lookup the value from environment variables.
-const AnonymousStructFieldNameDefault = "&"
-
-var defaultLoader = Loader{
-	StructFieldTagKey:        StructFieldTagKeyDefault,
-	NamespaceSeparator:       NamespaceSeparatorDefault,
-	IgnoredStructFieldName:   IgnoredStructFieldNameDefault,
-	AnonymousStructFieldName: AnonymousStructFieldNameDefault,
-}
-
-// LoadEnv loads the values and put them into target using default Loader.
-func LoadEnv(prefix string, target interface{}) error {
-	return defaultLoader.LoadEnv(prefix, target)
-}
-
-type fieldOptions struct {
+type fieldTagFlags struct {
 	Anonymous bool
 	Required  bool
 }
 
-func parseFieldOptions(str string) (fieldOptions, error) {
+func parseFieldTagFlags(str string) (fieldTagFlags, error) {
 	if str == "" {
-		return fieldOptions{}, nil
+		return fieldTagFlags{}, nil
 	}
-	opts := fieldOptions{}
+	opts := fieldTagFlags{}
 	parts := strings.Split(str, ",")
 	for _, s := range parts {
 		switch s {
