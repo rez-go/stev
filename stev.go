@@ -16,10 +16,10 @@ import (
 //TODO: config: prefix, tag name, field error ignore, no override,
 // tag name conversion (e.g., from FieldName to FIELD_NAME), ignore untagged
 type Loader struct {
-	StructFieldTagName          string
-	NamespaceSeparator          string
-	IgnoredStructFieldTagName   string
-	AnonymousStructFieldTagName string
+	StructFieldTagKey        string
+	NamespaceSeparator       string
+	IgnoredStructFieldName   string
+	AnonymousStructFieldName string
 }
 
 // LoadEnv loads values into target from environment variables.
@@ -29,7 +29,7 @@ func (l Loader) LoadEnv(prefix string, target interface{}) error {
 }
 
 func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err error) {
-	tagName := l.StructFieldTagName
+	tagName := l.StructFieldTagKey
 	nsSep := l.NamespaceSeparator
 
 	tType := reflect.TypeOf(target)
@@ -74,10 +74,10 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			}
 		}
 		if fTagName != "" {
-			if fTagName == l.IgnoredStructFieldTagName {
+			if fTagName == l.IgnoredStructFieldName {
 				continue
 			}
-			if fTagName == l.AnonymousStructFieldTagName {
+			if fTagName == l.AnonymousStructFieldName {
 				fTagName = ""
 				fTagOpts.Anonymous = true
 			}
@@ -254,27 +254,27 @@ func (l Loader) convertFieldName(fieldName string) string {
 	return tagName
 }
 
-// StructFieldTagNameDefault is the string we use to identify the struct field tag
+// StructFieldTagKeyDefault is the string we use to identify the struct field tag
 // we must process.
-const StructFieldTagNameDefault = "env"
+const StructFieldTagKeyDefault = "env"
 
 // NamespaceSeparatorDefault is [TBD].
 const NamespaceSeparatorDefault = "_"
 
-// IgnoredStructFieldTagNameDefault is used to indicate struct fields which
+// IgnoredStructFieldNameDefault is used to indicate struct fields which
 // should be ignored.
-const IgnoredStructFieldTagNameDefault = "-"
+const IgnoredStructFieldNameDefault = "-"
 
-// AnonymousStructFieldTagNameDefault is used for to treat a field which has
+// AnonymousStructFieldNameDefault is used for to treat a field which has
 // the type of struct as embedded. It's affecting the way we construct the
 // key used to lookup the value from environment variables.
-const AnonymousStructFieldTagNameDefault = "&"
+const AnonymousStructFieldNameDefault = "&"
 
 var defaultLoader = Loader{
-	StructFieldTagName:          StructFieldTagNameDefault,
-	NamespaceSeparator:          NamespaceSeparatorDefault,
-	IgnoredStructFieldTagName:   IgnoredStructFieldTagNameDefault,
-	AnonymousStructFieldTagName: AnonymousStructFieldTagNameDefault,
+	StructFieldTagKey:        StructFieldTagKeyDefault,
+	NamespaceSeparator:       NamespaceSeparatorDefault,
+	IgnoredStructFieldName:   IgnoredStructFieldNameDefault,
+	AnonymousStructFieldName: AnonymousStructFieldNameDefault,
 }
 
 // LoadEnv loads the values and put them into target using default Loader.
