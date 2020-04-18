@@ -119,10 +119,12 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 
 		fType := fInfo.Type
 		if fType.Kind() == reflect.Struct || (fType.Kind() == reflect.Ptr && fType.Elem().Kind() == reflect.Struct) {
-			if strVal, exists := os.LookupEnv(prefix + fTagName); exists {
+			lookupKey := prefix + fTagName
+			if strVal, exists := os.LookupEnv(lookupKey); exists {
 				fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 				if err != nil {
-					return loadedAny, fmt.Errorf("stev: unable to load field value (field %q): %w", fInfo.Name, err)
+					return loadedAny, fmt.Errorf("stev: unable to load field value (field %q / %q): %w",
+						fInfo.Name, lookupKey, err)
 				}
 				loadedAny = loadedAny || fieldLoaded
 				continue
@@ -136,10 +138,12 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			}
 			fieldLoaded, err := l.loadEnv(fieldPrefix, fVal.Addr().Interface())
 			if err != nil {
-				return loadedAny, fmt.Errorf("stev: unable to load field value (field %q): %w", fInfo.Name, err)
+				return loadedAny, fmt.Errorf("stev: unable to load field value (field %q / %q): %w",
+					fInfo.Name, lookupKey, err)
 			}
 			if fieldLoaded && fTagFlags.Required {
-				return loadedAny, fmt.Errorf("stev: field is required (field %q)", fInfo.Name)
+				return loadedAny, fmt.Errorf("stev: field is required (field %q / %q)",
+					fInfo.Name, lookupKey)
 			}
 			loadedAny = loadedAny || fieldLoaded
 			continue
@@ -149,16 +153,19 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			return loadedAny, fmt.Errorf("stev: anonymous can only be used to field which type is struct or pointer to struct (field %q)", fInfo.Name)
 		}
 
-		if strVal, exists := os.LookupEnv(prefix + fTagName); exists {
+		lookupKey := prefix + fTagName
+		if strVal, exists := os.LookupEnv(lookupKey); exists {
 			fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 			if err != nil {
-				return loadedAny, fmt.Errorf("stev: unable to load field value (field %q): %w", fInfo.Name, err)
+				return loadedAny, fmt.Errorf("stev: unable to load field value (field %q / %q): %w",
+					fInfo.Name, lookupKey, err)
 			}
 			loadedAny = loadedAny || fieldLoaded
 			continue
 		} else {
 			if fTagFlags.Required {
-				return loadedAny, fmt.Errorf("stev: field is required (field %q)", fInfo.Name)
+				return loadedAny, fmt.Errorf("stev: field is required (field %q / %q)",
+					fInfo.Name, lookupKey)
 			}
 		}
 	}
