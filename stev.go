@@ -60,33 +60,33 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 	tagName := l.StructFieldTagKey
 	nsSep := l.NamespaceSeparator
 
-	tType := reflect.TypeOf(target)
+	tVal := reflect.ValueOf(target)
+	tType := tVal.Type()
 	if tType.Kind() != reflect.Ptr {
 		return false, errors.New("stev: requires pointer target")
 	}
-	tVal := reflect.ValueOf(target)
 	if tVal.IsNil() && !tVal.CanSet() {
 		return false, errors.New("stev: requires settable target")
 	}
 
-	tValDef := tVal.Elem()
-	tType = tValDef.Type()
+	tVal = tVal.Elem()
+	tType = tVal.Type()
 	if tType.Kind() == reflect.Ptr {
-		if tValDef.IsNil() {
+		if tVal.IsNil() {
 			structVal := reflect.New(tType.Elem())
 			loadedAny, err = l.loadEnv(prefix, structVal.Interface())
 			if loadedAny {
-				tValDef.Set(structVal)
+				tVal.Set(structVal)
 			}
 		} else {
-			loadedAny, err = l.loadEnv(prefix, tValDef.Interface())
+			loadedAny, err = l.loadEnv(prefix, tVal.Interface())
 		}
 		return
 	}
 
 	for i := 0; i < tType.NumField(); i++ {
 		fInfo := tType.Field(i)
-		fVal := tValDef.Field(i)
+		fVal := tVal.Field(i)
 		if fInfo.PkgPath != "" {
 			continue
 		}
