@@ -52,14 +52,24 @@ var defaultLoader = Loader{
 
 // LoadEnv loads values into target from environment variables.
 func (l Loader) LoadEnv(prefix string, target interface{}) error {
-	_, err := l.loadEnv(prefix, target)
+	_, err := l.loadEnv(prefix, target, false, false)
 	if err != nil {
 		return fmt.Errorf("stev: %w", err)
 	}
 	return nil
 }
 
-func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err error) {
+type fieldKey struct {
+	fieldName string
+	lookupKey string
+}
+
+func (l Loader) loadEnv(
+	prefix string,
+	target interface{},
+	parentRequired bool,
+	reqSuppress bool,
+) (loadedAny bool, err error) {
 	tagName := l.StructFieldTagKey
 	nsSep := l.NamespaceSeparator
 
@@ -77,15 +87,18 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 	if tType.Kind() == reflect.Ptr {
 		if tVal.IsNil() {
 			structVal := reflect.New(tType.Elem())
-			loadedAny, err = l.loadEnv(prefix, structVal.Interface())
+			loadedAny, err = l.loadEnv(prefix, structVal.Interface(), parentRequired, true)
 			if loadedAny {
 				tVal.Set(structVal)
 			}
 		} else {
-			loadedAny, err = l.loadEnv(prefix, tVal.Interface())
+			loadedAny, err = l.loadEnv(prefix, tVal.Interface(), parentRequired, reqSuppress)
 		}
 		return
 	}
+
+	// Holds the list of fields which flagged as required but value was not provided
+	var unsatisfiedFields []fieldKey
 
 	for i := 0; i < tType.NumField(); i++ {
 		fInfo := tType.Field(i)
@@ -163,12 +176,13 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 					fieldPrefix = prefix + fTagName + nsSep
 				}
 			}
-			fieldLoaded, err := l.loadEnv(fieldPrefix, fVal.Addr().Interface())
+			fieldLoaded, err := l.loadEnv(fieldPrefix, fVal.Addr().Interface(),
+				fTagOpts.Required || parentRequired, true)
 			if err != nil {
 				return loadedAny, fmt.Errorf("unable to load field value (field %s key %s*): %w",
 					fInfo.Name, fieldPrefix, err)
 			}
-			if fieldLoaded && fTagOpts.Required {
+			if !fieldLoaded && fTagOpts.Required {
 				return loadedAny, fmt.Errorf("field is required (field %s key %s*)",
 					fInfo.Name, fieldPrefix)
 			}
@@ -202,7 +216,8 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 					return false, fmt.Errorf("requires settable target (field %s key %s)", fInfo.Name, fMapKey)
 				}
 				fmPrefix := fmBasePrefix + strings.ToUpper(fMapKey) + nsSep
-				mapEntryLoaded, err := l.loadEnv(fmPrefix, fmVal.Interface())
+				mapEntryLoaded, err := l.loadEnv(fmPrefix, fmVal.Interface(),
+					fTagOpts.Required || parentRequired, true)
 				if err != nil {
 					return loadedAny, fmt.Errorf("map entry loading failed: %w (field %s key %s)",
 						err, fInfo.Name, fMapKey)
@@ -236,10 +251,17 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			continue
 		} else {
 			if fTagOpts.Required {
-				return loadedAny, fmt.Errorf("field is required (field %s key %s)",
-					fInfo.Name, lookupKey)
+				if parentRequired || !reqSuppress {
+					return loadedAny, fmt.Errorf("field is required (field %s key %s)",
+						fInfo.Name, lookupKey)
+				}
+				unsatisfiedFields = append(unsatisfiedFields, fieldKey{fInfo.Name, lookupKey})
 			}
 		}
+	}
+
+	if loadedAny && len(unsatisfiedFields) > 0 {
+		return loadedAny, fmt.Errorf("fields are required %v", unsatisfiedFields)
 	}
 
 	return

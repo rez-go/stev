@@ -3,6 +3,7 @@ package stev_test
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,31 @@ func TestNameOnlyWithDoubleNilTargetValid(t *testing.T) {
 	}
 	if cfg.Name != "Go" {
 		t.Errorf(`Expected "Go" got %q`, cfg.Name)
+	}
+}
+
+type RequiredName struct {
+	Name string `env:",required"`
+}
+
+func TestRequiredTargetPointerNil(t *testing.T) {
+	os.Clearenv()
+	var cfg *RequiredName
+	err := stev.LoadEnv("", &cfg)
+	if err != nil {
+		t.Errorf("Expected nil, got %#v", err)
+	}
+	if cfg != nil {
+		t.Errorf(`Expected nil, got %#v`, cfg)
+	}
+}
+
+func TestRequiredTargetPointerNonNil(t *testing.T) {
+	os.Clearenv()
+	cfg := &RequiredName{}
+	err := stev.LoadEnv("", &cfg)
+	if err == nil {
+		t.Errorf("Expected error")
 	}
 }
 
@@ -627,6 +653,49 @@ func TestDurationPtrUntaggedWithValue(t *testing.T) {
 	}
 	if *cfg.Delay != 60*time.Second {
 		t.Errorf(`Expected 60s got %v`, cfg.Delay)
+	}
+}
+
+type RequirementTest struct {
+	OptionalMixed    *MixedRequirements
+	RequiredOptional *AllOptional `env:",required"`
+}
+
+type AllOptional struct {
+	Name  string
+	Color string
+}
+
+type MixedRequirements struct {
+	Name  string `env:",required"`
+	Color string
+}
+
+func TestReqNothingSet(t *testing.T) {
+	os.Clearenv()
+	cfg := RequirementTest{}
+	err := stev.LoadEnv("", &cfg)
+	if err == nil {
+		t.Errorf("Expected error")
+	}
+	if !strings.HasSuffix(err.Error(), "(field RequiredOptional key REQUIRED_OPTIONAL_*)") {
+		unwrappedErr := errors.Unwrap(err)
+		t.Errorf("Unexpected error: %#v (%#v)", err, unwrappedErr)
+	}
+}
+
+func TestReqMixedOptionalSet(t *testing.T) {
+	os.Clearenv()
+	cfg := RequirementTest{}
+	os.Setenv("OPTIONAL_MIXED_COLOR", "RED")
+	os.Setenv("REQUIRED_OPTIONAL_NAME", "Optional")
+	err := stev.LoadEnv("", &cfg)
+	if err == nil {
+		t.Errorf("Expected error")
+	}
+	if !strings.HasSuffix(err.Error(), "fields are required [{Name OPTIONAL_MIXED_NAME}]") {
+		unwrappedErr := errors.Unwrap(err)
+		t.Errorf("Unexpected error: %#v (%#v)", err, unwrappedErr)
 	}
 }
 
