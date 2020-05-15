@@ -266,7 +266,7 @@ func TestStringWithValueIgnore(t *testing.T) {
 func TestStringAnonymous(t *testing.T) {
 	os.Clearenv()
 	cfg := struct {
-		Name string `env:",anonymous"`
+		Name string `env:",squash"`
 	}{}
 	err := stev.LoadEnv("", &cfg)
 	if err == nil {
@@ -369,7 +369,51 @@ type OuterStructEmbeddedInner struct {
 
 type OuterStructForcedAnonInner struct {
 	Name  string
-	Inner InnerStruct `env:",anonymous"`
+	Inner InnerStruct `env:",squash"`
+}
+
+type InnerPrefix struct {
+	Color string
+	Size  int64 `env:"!ABSOLUTE_SIZE"`
+}
+
+type OuterStructNoPrefixInner struct {
+	Name          string
+	Description   string       `env:"!ABSOLUTE_DESC"`
+	WithPrefix    InnerPrefix  `env:"WITH"`
+	WithoutPrefix InnerPrefix  `env:"!WITHOUT"`
+	WithPtr       *InnerPrefix `env:"PTR"`
+	Anon          InnerPrefix  `env:"!,squash"`
+	//TODO: test squash, anon and ptr
+}
+
+func TestPrefixes(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("NAME", "Go (no prefix)")
+	os.Setenv("PFX_NAME", "Go")
+	os.Setenv("ABSOLUTE_DESC", "Description")
+	os.Setenv("PFX_ABSOLUTE_DESC", "Description (prefixed)")
+	os.Setenv("COLOR", "BLACK")
+	os.Setenv("PFX_COLOR", "WHITE")
+	os.Setenv("PFX_WITH_COLOR", "RED")
+	os.Setenv("WITHOUT_COLOR", "BLUE")
+	os.Setenv("PFX_WITHOUT_COLOR", "GREEN")
+	os.Setenv("ABSOLUTE_SIZE", "9001")
+	os.Setenv("PFX_WITH_ABSOLUTE_SIZE", "9002")
+	os.Setenv("PFX_PTR_COLOR", "ORANGE")
+	cfg := OuterStructNoPrefixInner{}
+	err := stev.LoadEnv("PFX_", &cfg)
+	if err != nil {
+		t.Errorf("Expected nil, got %#v", err)
+	}
+	assertStrEq(t, cfg.Name, "Go")
+	assertStrEq(t, cfg.Description, "Description")
+	assertStrEq(t, cfg.WithPrefix.Color, "RED")
+	assertInt64Eq(t, cfg.WithPrefix.Size, 9001)
+	assertStrEq(t, cfg.WithoutPrefix.Color, "BLUE")
+	assertInt64Eq(t, cfg.WithoutPrefix.Size, 9001)
+	assertStrEq(t, cfg.WithPtr.Color, "ORANGE")
+	assertInt64Eq(t, cfg.WithPtr.Size, 9001)
 }
 
 func TestStructUntagged(t *testing.T) {
@@ -507,5 +551,16 @@ func TestDurationPtrUntaggedWithValue(t *testing.T) {
 	}
 	if *cfg.Delay != 60*time.Second {
 		t.Errorf(`Expected 60s got %v`, cfg.Delay)
+	}
+}
+
+func assertStrEq(t *testing.T, have, wanted string) {
+	if wanted != have {
+		t.Errorf("Assertion failed:\n\twanted: %v\n\thave:   %v", wanted, have)
+	}
+}
+func assertInt64Eq(t *testing.T, have, wanted int64) {
+	if wanted != have {
+		t.Errorf("Assertion failed:\n\twanted: %v\n\thave:   %v", wanted, have)
 	}
 }

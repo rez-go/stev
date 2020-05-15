@@ -21,10 +21,10 @@ func LoadEnv(prefix string, target interface{}) error {
 //TODO: config: field error ignore (best effort), no override,
 // tag name conversion (e.g., from FieldName to FIELD_NAME), ignore untagged
 type Loader struct {
-	StructFieldTagKey        string
-	NamespaceSeparator       string
-	IgnoredStructFieldName   string
-	AnonymousStructFieldName string
+	StructFieldTagKey      string
+	NamespaceSeparator     string
+	IgnoredStructFieldName string
+	SquashStructFieldName  string
 }
 
 // StructFieldTagKeyDefault is the string we use to identify the struct field tag
@@ -38,22 +38,25 @@ const NamespaceSeparatorDefault = "_"
 // should be ignored.
 const IgnoredStructFieldNameDefault = "-"
 
-// AnonymousStructFieldNameDefault is used for to treat a field which has
+// SquashStructFieldNameDefault is used for to treat a field which has
 // the type of struct as embedded. It's affecting the way we construct the
 // key used to lookup the value from environment variables.
-const AnonymousStructFieldNameDefault = "&"
+const SquashStructFieldNameDefault = "&"
 
 var defaultLoader = Loader{
-	StructFieldTagKey:        StructFieldTagKeyDefault,
-	NamespaceSeparator:       NamespaceSeparatorDefault,
-	IgnoredStructFieldName:   IgnoredStructFieldNameDefault,
-	AnonymousStructFieldName: AnonymousStructFieldNameDefault,
+	StructFieldTagKey:      StructFieldTagKeyDefault,
+	NamespaceSeparator:     NamespaceSeparatorDefault,
+	IgnoredStructFieldName: IgnoredStructFieldNameDefault,
+	SquashStructFieldName:  SquashStructFieldNameDefault,
 }
 
 // LoadEnv loads values into target from environment variables.
 func (l Loader) LoadEnv(prefix string, target interface{}) error {
 	_, err := l.loadEnv(prefix, target)
-	return err
+	if err != nil {
+		return fmt.Errorf("stev: %w", err)
+	}
+	return nil
 }
 
 func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err error) {
@@ -63,10 +66,10 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 	tVal := reflect.ValueOf(target)
 	tType := tVal.Type()
 	if tType.Kind() != reflect.Ptr {
-		return false, errors.New("stev: requires pointer target")
+		return false, errors.New("requires pointer target")
 	}
 	if tVal.IsNil() && !tVal.CanSet() {
-		return false, errors.New("stev: requires settable target")
+		return false, errors.New("requires settable target")
 	}
 
 	tVal = tVal.Elem()
@@ -105,66 +108,97 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			if fTagName == l.IgnoredStructFieldName {
 				continue
 			}
-			if fTagName == l.AnonymousStructFieldName {
+			if fTagName == l.SquashStructFieldName {
 				fTagName = ""
-				fTagFlags.Anonymous = true
+				fTagFlags.Squash = true
+			}
+
+			if strings.HasPrefix(fTagName, "!") {
+				if fTagFlags.Squash {
+					// Note that this should be possible but it'll be
+					// quite complex (and there's probably no use case)
+					return false, fmt.Errorf("cannot combine noprefix with squash (field %q)", fTagName)
+				}
+				fTagFlags.NoPrefix = true
+				fTagName = strings.TrimPrefix(fTagName, "!")
+				if fTagName == "" {
+					fTagName = l.convertFieldName(fInfo.Name)
+				}
 			}
 		} else {
 			if !fInfo.Anonymous {
 				fTagName = l.convertFieldName(fInfo.Name)
 			} else {
-				fTagFlags.Anonymous = true
+				fTagFlags.Squash = true
 			}
 		}
 
 		fType := fInfo.Type
 		if fType.Kind() == reflect.Struct || (fType.Kind() == reflect.Ptr && fType.Elem().Kind() == reflect.Struct) {
-			lookupKey := prefix + fTagName
-			if strVal, exists := os.LookupEnv(lookupKey); exists {
-				fieldLoaded, err := l.loadFieldValue(strVal, fVal)
-				if err != nil {
-					return loadedAny, fmt.Errorf("stev: unable to load field value (field %q / %q): %w",
-						fInfo.Name, lookupKey, err)
+			if fTagName != "" {
+				var lookupKey string
+				if fTagFlags.NoPrefix {
+					lookupKey = fTagName
+				} else {
+					lookupKey = prefix + fTagName
 				}
-				loadedAny = loadedAny || fieldLoaded
-				continue
+				if strVal, exists := os.LookupEnv(lookupKey); exists {
+					fieldLoaded, err := l.loadFieldValue(strVal, fVal)
+					if err != nil {
+						return loadedAny, fmt.Errorf("unable to load field value (field %q / %q): %w",
+							fInfo.Name, lookupKey, err)
+					}
+					loadedAny = loadedAny || fieldLoaded
+					continue
+				}
 			}
 
 			var fieldPrefix string
-			if fTagFlags.Anonymous {
+			if fTagFlags.Squash {
 				fieldPrefix = prefix
 			} else {
-				fieldPrefix = prefix + fTagName + nsSep
+				if fTagFlags.NoPrefix {
+					fieldPrefix = fTagName + nsSep
+				} else {
+					fieldPrefix = prefix + fTagName + nsSep
+				}
 			}
 			fieldLoaded, err := l.loadEnv(fieldPrefix, fVal.Addr().Interface())
 			if err != nil {
-				return loadedAny, fmt.Errorf("stev: unable to load field value (field %q / %q): %w",
-					fInfo.Name, lookupKey, err)
+				return loadedAny, fmt.Errorf("unable to load field value (field %q / %q*): %w",
+					fInfo.Name, fieldPrefix, err)
 			}
 			if fieldLoaded && fTagFlags.Required {
-				return loadedAny, fmt.Errorf("stev: field is required (field %q / %q)",
-					fInfo.Name, lookupKey)
+				return loadedAny, fmt.Errorf("field is required (field %q / %q*)",
+					fInfo.Name, fieldPrefix)
 			}
 			loadedAny = loadedAny || fieldLoaded
 			continue
 		}
 
-		if fTagFlags.Anonymous {
-			return loadedAny, fmt.Errorf("stev: anonymous can only be used to field which type is struct or pointer to struct (field %q)", fInfo.Name)
+		if fTagFlags.Squash {
+			return loadedAny, fmt.Errorf("squash can only be used to "+
+				"field which type is struct or pointer "+
+				"to struct (field %q)", fInfo.Name)
 		}
 
-		lookupKey := prefix + fTagName
+		var lookupKey string
+		if fTagFlags.NoPrefix {
+			lookupKey = fTagName
+		} else {
+			lookupKey = prefix + fTagName
+		}
 		if strVal, exists := os.LookupEnv(lookupKey); exists {
 			fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 			if err != nil {
-				return loadedAny, fmt.Errorf("stev: unable to load field value (field %q / %q): %w",
+				return loadedAny, fmt.Errorf("unable to load field value (field %q / %q): %w",
 					fInfo.Name, lookupKey, err)
 			}
 			loadedAny = loadedAny || fieldLoaded
 			continue
 		} else {
 			if fTagFlags.Required {
-				return loadedAny, fmt.Errorf("stev: field is required (field %q / %q)",
+				return loadedAny, fmt.Errorf("field is required (field %q / %q)",
 					fInfo.Name, lookupKey)
 			}
 		}
@@ -286,8 +320,9 @@ func (l Loader) convertFieldName(fieldName string) string {
 }
 
 type fieldTagFlags struct {
-	Anonymous bool
-	Required  bool
+	NoPrefix bool
+	Squash   bool
+	Required bool
 }
 
 func parseFieldTagFlags(str string) (fieldTagFlags, error) {
@@ -298,8 +333,8 @@ func parseFieldTagFlags(str string) (fieldTagFlags, error) {
 	parts := strings.Split(str, ",")
 	for _, s := range parts {
 		switch s {
-		case "anonymous":
-			opts.Anonymous = true
+		case "anonymous", "squash":
+			opts.Squash = true
 		case "required":
 			opts.Required = true
 		}
