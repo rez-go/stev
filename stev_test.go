@@ -383,7 +383,6 @@ type OuterStructNoPrefixInner struct {
 	WithPrefix    InnerPrefix  `env:"WITH"`
 	WithoutPrefix InnerPrefix  `env:"!WITHOUT"`
 	WithPtr       *InnerPrefix `env:"PTR"`
-	Anon          InnerPrefix  `env:"!,squash"`
 	//TODO: test squash, anon and ptr
 }
 
