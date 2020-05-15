@@ -117,7 +117,7 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 				if fTagOpts.Squash {
 					// Note that this should be possible but it'll be
 					// quite complex (and there's probably no use case)
-					return false, fmt.Errorf("cannot combine noprefix with squash (field %q)", fTagName)
+					return false, fmt.Errorf("cannot combine noprefix with squash (field %s)", fTagName)
 				}
 				fTagOpts.NoPrefix = true
 				fTagName = strings.TrimPrefix(fTagName, "!")
@@ -145,7 +145,7 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 				if strVal, exists := os.LookupEnv(lookupKey); exists {
 					fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 					if err != nil {
-						return loadedAny, fmt.Errorf("unable to load field value (field %q / %q): %w",
+						return loadedAny, fmt.Errorf("unable to load field value (field %s key %s): %w",
 							fInfo.Name, lookupKey, err)
 					}
 					loadedAny = loadedAny || fieldLoaded
@@ -165,11 +165,11 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			}
 			fieldLoaded, err := l.loadEnv(fieldPrefix, fVal.Addr().Interface())
 			if err != nil {
-				return loadedAny, fmt.Errorf("unable to load field value (field %q / %q*): %w",
+				return loadedAny, fmt.Errorf("unable to load field value (field %s key %s*): %w",
 					fInfo.Name, fieldPrefix, err)
 			}
 			if fieldLoaded && fTagOpts.Required {
-				return loadedAny, fmt.Errorf("field is required (field %q / %q*)",
+				return loadedAny, fmt.Errorf("field is required (field %s key %s*)",
 					fInfo.Name, fieldPrefix)
 			}
 			loadedAny = loadedAny || fieldLoaded
@@ -195,16 +195,16 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 				fmVal := reflect.ValueOf(fMapValue)
 				fmType := fmVal.Type()
 				if fmType.Kind() != reflect.Ptr {
-					return false, fmt.Errorf("requires pointer target (field %q, key %q)", fInfo.Name, fMapKey)
+					return false, fmt.Errorf("requires pointer target (field %s key %s)", fInfo.Name, fMapKey)
 				}
 				// Notes: might try to instantiate, but we won't support it for now.
 				if fmVal.IsNil() && !fmVal.CanSet() {
-					return false, fmt.Errorf("requires settable target (field %q, key %q)", fInfo.Name, fMapKey)
+					return false, fmt.Errorf("requires settable target (field %s key %s)", fInfo.Name, fMapKey)
 				}
 				fmPrefix := fmBasePrefix + strings.ToUpper(fMapKey) + nsSep
 				mapEntryLoaded, err := l.loadEnv(fmPrefix, fmVal.Interface())
 				if err != nil {
-					return loadedAny, fmt.Errorf("map entry loading failed: %w (field %q, key %q)",
+					return loadedAny, fmt.Errorf("map entry loading failed: %w (field %s key %s)",
 						err, fInfo.Name, fMapKey)
 				}
 
@@ -217,7 +217,7 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 		if fTagOpts.Squash {
 			return loadedAny, fmt.Errorf("squash can only be used to "+
 				"field which type is struct or pointer "+
-				"to struct (field %q)", fInfo.Name)
+				"to struct (field %s)", fInfo.Name)
 		}
 
 		var lookupKey string
@@ -229,14 +229,14 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 		if strVal, exists := os.LookupEnv(lookupKey); exists {
 			fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 			if err != nil {
-				return loadedAny, fmt.Errorf("unable to load field value (field %q / %q): %w",
+				return loadedAny, fmt.Errorf("unable to load field value (field %s key %s): %w",
 					fInfo.Name, lookupKey, err)
 			}
 			loadedAny = loadedAny || fieldLoaded
 			continue
 		} else {
 			if fTagOpts.Required {
-				return loadedAny, fmt.Errorf("field is required (field %q / %q)",
+				return loadedAny, fmt.Errorf("field is required (field %s key %s)",
 					fInfo.Name, lookupKey)
 			}
 		}
