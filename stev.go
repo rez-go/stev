@@ -96,12 +96,12 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 
 		fTag := fInfo.Tag.Get(tagName)
 		var fTagName string
-		var fTagFlags fieldTagFlags
+		var fTagOpts fieldTagOpts
 		if fTag != "" {
 			fTagParts := strings.SplitN(fTag, ",", 2)
 			fTagName = fTagParts[0]
 			if len(fTagParts) > 1 {
-				fTagFlags, _ = parseFieldTagFlags(fTagParts[1])
+				fTagOpts, _ = parseFieldTagOpts(fTagParts[1])
 			}
 		}
 		if fTagName != "" {
@@ -110,16 +110,16 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			}
 			if fTagName == l.SquashStructFieldName {
 				fTagName = ""
-				fTagFlags.Squash = true
+				fTagOpts.Squash = true
 			}
 
 			if strings.HasPrefix(fTagName, "!") {
-				if fTagFlags.Squash {
+				if fTagOpts.Squash {
 					// Note that this should be possible but it'll be
 					// quite complex (and there's probably no use case)
 					return false, fmt.Errorf("cannot combine noprefix with squash (field %q)", fTagName)
 				}
-				fTagFlags.NoPrefix = true
+				fTagOpts.NoPrefix = true
 				fTagName = strings.TrimPrefix(fTagName, "!")
 				if fTagName == "" {
 					fTagName = l.convertFieldName(fInfo.Name)
@@ -129,7 +129,7 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			if !fInfo.Anonymous {
 				fTagName = l.convertFieldName(fInfo.Name)
 			} else {
-				fTagFlags.Squash = true
+				fTagOpts.Squash = true
 			}
 		}
 
@@ -137,7 +137,7 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 		if fType.Kind() == reflect.Struct || (fType.Kind() == reflect.Ptr && fType.Elem().Kind() == reflect.Struct) {
 			if fTagName != "" {
 				var lookupKey string
-				if fTagFlags.NoPrefix {
+				if fTagOpts.NoPrefix {
 					lookupKey = fTagName
 				} else {
 					lookupKey = prefix + fTagName
@@ -154,10 +154,10 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			}
 
 			var fieldPrefix string
-			if fTagFlags.Squash {
+			if fTagOpts.Squash {
 				fieldPrefix = prefix
 			} else {
-				if fTagFlags.NoPrefix {
+				if fTagOpts.NoPrefix {
 					fieldPrefix = fTagName + nsSep
 				} else {
 					fieldPrefix = prefix + fTagName + nsSep
@@ -168,7 +168,7 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 				return loadedAny, fmt.Errorf("unable to load field value (field %q / %q*): %w",
 					fInfo.Name, fieldPrefix, err)
 			}
-			if fieldLoaded && fTagFlags.Required {
+			if fieldLoaded && fTagOpts.Required {
 				return loadedAny, fmt.Errorf("field is required (field %q / %q*)",
 					fInfo.Name, fieldPrefix)
 			}
@@ -176,14 +176,52 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			continue
 		}
 
-		if fTagFlags.Squash {
+		if fType.Kind() == reflect.Map && fTagOpts.Map {
+			fMap, ok := fVal.Interface().(map[string]interface{})
+			if !ok {
+				return loadedAny, fmt.Errorf("map requires an instance of type map[string]interface{}")
+			}
+			var fmBasePrefix string
+			if fTagOpts.Squash {
+				fmBasePrefix = prefix
+			} else {
+				if fTagOpts.NoPrefix {
+					fmBasePrefix = fTagName + nsSep
+				} else {
+					fmBasePrefix = prefix + fTagName + nsSep
+				}
+			}
+			for fMapKey, fMapValue := range fMap {
+				fmVal := reflect.ValueOf(fMapValue)
+				fmType := fmVal.Type()
+				if fmType.Kind() != reflect.Ptr {
+					return false, fmt.Errorf("requires pointer target (field %q, key %q)", fInfo.Name, fMapKey)
+				}
+				// Notes: might try to instantiate, but we won't support it for now.
+				if fmVal.IsNil() && !fmVal.CanSet() {
+					return false, fmt.Errorf("requires settable target (field %q, key %q)", fInfo.Name, fMapKey)
+				}
+				fmPrefix := fmBasePrefix + strings.ToUpper(fMapKey) + nsSep
+				mapEntryLoaded, err := l.loadEnv(fmPrefix, fmVal.Interface())
+				if err != nil {
+					return loadedAny, fmt.Errorf("map entry loading failed: %w (field %q, key %q)",
+						err, fInfo.Name, fMapKey)
+				}
+
+				loadedAny = loadedAny || mapEntryLoaded
+			}
+
+			continue
+		}
+
+		if fTagOpts.Squash {
 			return loadedAny, fmt.Errorf("squash can only be used to "+
 				"field which type is struct or pointer "+
 				"to struct (field %q)", fInfo.Name)
 		}
 
 		var lookupKey string
-		if fTagFlags.NoPrefix {
+		if fTagOpts.NoPrefix {
 			lookupKey = fTagName
 		} else {
 			lookupKey = prefix + fTagName
@@ -197,7 +235,7 @@ func (l Loader) loadEnv(prefix string, target interface{}) (loadedAny bool, err 
 			loadedAny = loadedAny || fieldLoaded
 			continue
 		} else {
-			if fTagFlags.Required {
+			if fTagOpts.Required {
 				return loadedAny, fmt.Errorf("field is required (field %q / %q)",
 					fInfo.Name, lookupKey)
 			}
@@ -319,17 +357,18 @@ func (l Loader) convertFieldName(fieldName string) string {
 	return tagName
 }
 
-type fieldTagFlags struct {
+type fieldTagOpts struct {
 	NoPrefix bool
 	Squash   bool
 	Required bool
+	Map      bool // Only for maps
 }
 
-func parseFieldTagFlags(str string) (fieldTagFlags, error) {
+func parseFieldTagOpts(str string) (fieldTagOpts, error) {
 	if str == "" {
-		return fieldTagFlags{}, nil
+		return fieldTagOpts{}, nil
 	}
-	opts := fieldTagFlags{}
+	opts := fieldTagOpts{}
 	parts := strings.Split(str, ",")
 	for _, s := range parts {
 		switch s {
@@ -337,6 +376,8 @@ func parseFieldTagFlags(str string) (fieldTagFlags, error) {
 			opts.Squash = true
 		case "required":
 			opts.Required = true
+		case "map":
+			opts.Map = true
 		}
 	}
 	return opts, nil

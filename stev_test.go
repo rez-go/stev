@@ -1,6 +1,7 @@
 package stev_test
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -505,6 +506,82 @@ func TestStructForcedAnonInnerUntaggedValidValues(t *testing.T) {
 		t.Errorf(`Unexpected value`)
 	}
 	if cfg.Inner.Color != "RED" {
+		t.Errorf(`Unexpected value`)
+	}
+}
+
+type ModularConfig struct {
+	Modules map[string]interface{} `env:"MOD,map"`
+}
+type ModularSquashedConfig struct {
+	Modules map[string]interface{} `env:",map,squash"`
+}
+
+type AuthModuleConfig struct {
+	ClientID string `env:",required"`
+}
+
+type FilesModuleConfig struct {
+	Directory string `env:",required"`
+}
+
+func TestModularEmpty(t *testing.T) {
+	os.Clearenv()
+	cfg := ModularConfig{}
+	err := stev.LoadEnv("", &cfg)
+	if err != nil {
+		t.Errorf("Expected nil, got %#v", err)
+	}
+}
+
+func TestModular(t *testing.T) {
+	os.Clearenv()
+	cfg := ModularSquashedConfig{
+		Modules: map[string]interface{}{
+			"auth":  &AuthModuleConfig{},
+			"files": &FilesModuleConfig{},
+		},
+	}
+	os.Setenv("MOD_AUTH_CLIENT_ID", "home")
+	os.Setenv("MOD_FILES_DIRECTORY", "/home")
+	os.Setenv("AUTH_CLIENT_ID", "root")
+	os.Setenv("FILES_DIRECTORY", "/root")
+	err := stev.LoadEnv("", &cfg)
+	if err != nil {
+		unwrappedErr := errors.Unwrap(err)
+		t.Errorf("Expected nil, got %#v (%#v)", err, unwrappedErr)
+	}
+	authCfg := cfg.Modules["auth"].(*AuthModuleConfig)
+	if authCfg.ClientID != "root" {
+		t.Errorf(`Unexpected value`)
+	}
+	filesCfg := cfg.Modules["files"].(*FilesModuleConfig)
+	if filesCfg.Directory != "/root" {
+		t.Errorf(`Unexpected value`)
+	}
+}
+
+func TestModularSquash(t *testing.T) {
+	os.Clearenv()
+	cfg := ModularConfig{
+		Modules: map[string]interface{}{
+			"auth":  &AuthModuleConfig{},
+			"files": &FilesModuleConfig{},
+		},
+	}
+	os.Setenv("MOD_AUTH_CLIENT_ID", "root")
+	os.Setenv("MOD_FILES_DIRECTORY", "/root")
+	err := stev.LoadEnv("", &cfg)
+	if err != nil {
+		unwrappedErr := errors.Unwrap(err)
+		t.Errorf("Expected nil, got %#v (%#v)", err, unwrappedErr)
+	}
+	authCfg := cfg.Modules["auth"].(*AuthModuleConfig)
+	if authCfg.ClientID != "root" {
+		t.Errorf(`Unexpected value`)
+	}
+	filesCfg := cfg.Modules["files"].(*FilesModuleConfig)
+	if filesCfg.Directory != "/root" {
 		t.Errorf(`Unexpected value`)
 	}
 }
