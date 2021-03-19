@@ -52,12 +52,14 @@ var defaultLoader = Loader{
 
 // LoadEnv loads values into target from environment variables.
 func (l Loader) LoadEnv(prefix string, target interface{}) error {
-	_, err := l.loadEnv(prefix, target, false, false)
+	_, err := l.loadEnv(prefix, target, nil, false, false)
 	if err != nil {
 		return fmt.Errorf("stev: %w", err)
 	}
 	return nil
 }
+
+type lookupEnvFunc = func(string) (string, bool)
 
 type fieldKey struct {
 	fieldName string
@@ -67,9 +69,14 @@ type fieldKey struct {
 func (l Loader) loadEnv(
 	prefix string,
 	target interface{},
+	lookupEnvFn lookupEnvFunc,
 	parentRequired bool,
 	reqSuppress bool,
 ) (loadedAny bool, err error) {
+	if lookupEnvFn == nil {
+		lookupEnvFn = os.LookupEnv
+	}
+
 	tagName := l.StructFieldTagKey
 	nsSep := l.NamespaceSeparator
 
@@ -87,12 +94,14 @@ func (l Loader) loadEnv(
 	if tType.Kind() == reflect.Ptr {
 		if tVal.IsNil() {
 			structVal := reflect.New(tType.Elem())
-			loadedAny, err = l.loadEnv(prefix, structVal.Interface(), parentRequired, true)
+			loadedAny, err = l.loadEnv(prefix, structVal.Interface(),
+				lookupEnvFn, parentRequired, true)
 			if loadedAny {
 				tVal.Set(structVal)
 			}
 		} else {
-			loadedAny, err = l.loadEnv(prefix, tVal.Interface(), parentRequired, reqSuppress)
+			loadedAny, err = l.loadEnv(prefix, tVal.Interface(),
+				lookupEnvFn, parentRequired, reqSuppress)
 		}
 		return
 	}
@@ -155,7 +164,7 @@ func (l Loader) loadEnv(
 				} else {
 					lookupKey = prefix + fTagName
 				}
-				if strVal, exists := os.LookupEnv(lookupKey); exists {
+				if strVal, exists := lookupEnvFn(lookupKey); exists {
 					fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 					if err != nil {
 						return loadedAny, fmt.Errorf("unable to load field value (field %s key %s): %w",
@@ -177,7 +186,7 @@ func (l Loader) loadEnv(
 				}
 			}
 			fieldLoaded, err := l.loadEnv(fieldPrefix, fVal.Addr().Interface(),
-				fTagOpts.Required || parentRequired, true)
+				lookupEnvFn, fTagOpts.Required || parentRequired, true)
 			if err != nil {
 				return loadedAny, fmt.Errorf("unable to load field value (field %s key %s*): %w",
 					fInfo.Name, fieldPrefix, err)
@@ -217,7 +226,7 @@ func (l Loader) loadEnv(
 				}
 				fmPrefix := fmBasePrefix + strings.ToUpper(fMapKey) + nsSep
 				mapEntryLoaded, err := l.loadEnv(fmPrefix, fmVal.Interface(),
-					fTagOpts.Required || parentRequired, true)
+					lookupEnvFn, fTagOpts.Required || parentRequired, true)
 				if err != nil {
 					return loadedAny, fmt.Errorf("map entry loading failed: %w (field %s key %s)",
 						err, fInfo.Name, fMapKey)
@@ -241,7 +250,7 @@ func (l Loader) loadEnv(
 		} else {
 			lookupKey = prefix + fTagName
 		}
-		if strVal, exists := os.LookupEnv(lookupKey); exists {
+		if strVal, exists := lookupEnvFn(lookupKey); exists {
 			fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 			if err != nil {
 				return loadedAny, fmt.Errorf("unable to load field value (field %s key %s): %w",
