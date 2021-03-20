@@ -190,31 +190,12 @@ func (l Loader) loadFromEnv(
 				} else {
 					lookupKey = lookupPrefix + fTagName
 				}
-				if fieldDocs != nil {
-					var desc string
-					if fd, ok := target.(fieldDescriptionsProvider); ok {
-						fieldDescs := fd.StevFieldDescriptions()
-						desc, ok = fieldDescs[fInfo.Name]
-						if !ok {
-							desc = fieldDescs[fTagName]
-						}
-					}
-					//TODO: use our own interface for converting the values from/to string
-					var defVal string
-					if fType.Kind() == reflect.Ptr && fVal.IsNil() {
-						defVal = ""
-					} else {
-						defVal = fmt.Sprintf("%v", fVal.Interface())
-					}
-					*fieldDocs = append(*fieldDocs, FieldDocs{
-						LookupKey:   lookupKey,
-						DataType:    fType.String(),
-						Required:    fTagOpts.Required,
-						Description: desc,
-						Value:       defVal,
-						Path:        fieldPath + "." + fInfo.Name,
-					})
-				}
+
+				//TODO: docs for field which type is an opaque struct. we will
+				// provide an unmarshaller interface for field value types.
+				// if the type of a field value conforms the interface, then
+				// we'll treat it as opaque.
+
 				if strVal, exists := lookupEnv(lookupKey); exists {
 					fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 					if err != nil {
@@ -265,22 +246,23 @@ func (l Loader) loadFromEnv(
 					fmBasePrefix = lookupPrefix + fTagName + nsSep
 				}
 			}
-			for fMapKey, fMapValue := range fMap {
-				fmVal := reflect.ValueOf(fMapValue)
-				fmType := fmVal.Type()
-				if fmType.Kind() != reflect.Ptr {
-					return false, fmt.Errorf("requires pointer target (field %s key %s)", fInfo.Name, fMapKey)
+			for mapEntryKey, mapEntryVal := range fMap {
+				rmeVal := reflect.ValueOf(mapEntryVal)
+				rmeType := rmeVal.Type()
+				if rmeType.Kind() != reflect.Ptr {
+					return false, fmt.Errorf("requires pointer target (field %s key %s)", fInfo.Name, mapEntryKey)
 				}
 				// Notes: might try to instantiate, but we won't support it for now.
-				if fmVal.IsNil() && !fmVal.CanSet() {
-					return false, fmt.Errorf("requires settable target (field %s key %s)", fInfo.Name, fMapKey)
+				if rmeVal.IsNil() && !rmeVal.CanSet() {
+					return false, fmt.Errorf("requires settable target (field %s key %s)", fInfo.Name, mapEntryKey)
 				}
-				fmPrefix := fmBasePrefix + strings.ToUpper(fMapKey) + nsSep
-				mapEntryLoaded, err := l.loadFromEnv(fmPrefix, fmVal.Interface(),
-					fTagOpts.Required || parentIsRequired, true, fieldPath+"."+fInfo.Name, fieldDocs)
+				fmPrefix := fmBasePrefix + strings.ToUpper(mapEntryKey) + nsSep
+				mapEntryLoaded, err := l.loadFromEnv(fmPrefix, rmeVal.Interface(),
+					fTagOpts.Required || parentIsRequired, true,
+					fieldPath+"."+fInfo.Name+"["+mapEntryKey+": "+rmeType.String()+"]", fieldDocs)
 				if err != nil {
 					return loadedAny, fmt.Errorf("map entry loading failed: %w (field %s key %s)",
-						err, fInfo.Name, fMapKey)
+						err, fInfo.Name, mapEntryKey)
 				}
 
 				loadedAny = loadedAny || mapEntryLoaded
