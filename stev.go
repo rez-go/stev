@@ -11,10 +11,25 @@ import (
 	"unicode"
 )
 
-// LoadEnv loads the values and put them into target using default Loader.
-func LoadEnv(prefix string, target interface{}) error {
-	return defaultLoader.LoadEnv(prefix, target)
+// LoadFromEnv loads the values and put them into target using default Loader.
+func LoadFromEnv(prefix string, target interface{}) error {
+	return defaultLoader.LoadFromEnv(prefix, target)
 }
+
+var LoadEnv = LoadFromEnv
+
+func Docs(prefix string, structure interface{}) ([]FieldDocs, error) {
+	l := defaultLoader
+	allKeys := []FieldDocs{}
+	_, err := l.loadFromEnv(prefix, structure, false, false, &allKeys)
+	if err != nil {
+		return nil, err
+	}
+	return allKeys, nil
+}
+
+// EnvLookupFunc is a function signature which can be satisfied by os.LookupEnv.
+type EnvLookupFunc = func(key string) (value string, ok bool)
 
 // Loader is [TBD]
 //
@@ -25,6 +40,8 @@ type Loader struct {
 	NamespaceSeparator     string
 	IgnoredStructFieldName string
 	SquashStructFieldName  string
+
+	lookupEnv EnvLookupFunc
 }
 
 // StructFieldTagKeyDefault is the string we use to identify the struct field tag
@@ -50,13 +67,19 @@ var defaultLoader = Loader{
 	SquashStructFieldName:  SquashStructFieldNameDefault,
 }
 
-// LoadEnv loads values into target from environment variables.
-func (l Loader) LoadEnv(prefix string, target interface{}) error {
-	_, err := l.loadEnv(prefix, target, nil, false, false)
+// LoadFromEnv loads values into target from environment variables.
+func (l Loader) LoadFromEnv(prefix string, target interface{}) error {
+	_, err := l.loadFromEnv(prefix, target, false, false, nil)
 	if err != nil {
 		return fmt.Errorf("stev: %w", err)
 	}
 	return nil
+}
+
+// LoadEnv loads values into target from environment variables. Deprecated.
+// Use LoadFromEnv.
+func (l Loader) LoadEnv(prefix string, target interface{}) error {
+	return l.LoadFromEnv(prefix, target)
 }
 
 type lookupEnvFunc = func(string) (string, bool)
@@ -66,16 +89,18 @@ type fieldKey struct {
 	lookupKey string
 }
 
-func (l Loader) loadEnv(
-	prefix string,
+func (l Loader) loadFromEnv(
+	lookupPrefix string,
 	target interface{},
-	lookupEnvFn lookupEnvFunc,
-	parentRequired bool,
-	reqSuppress bool,
+	parentIsRequired bool,
+	reqCancel bool,
+	fieldDocs *[]FieldDocs,
 ) (loadedAny bool, err error) {
-	if lookupEnvFn == nil {
-		lookupEnvFn = os.LookupEnv
+	lookupEnv := l.lookupEnv
+	if lookupEnv == nil {
+		lookupEnv = os.LookupEnv
 	}
+	docsMode := fieldDocs != nil
 
 	tagName := l.StructFieldTagKey
 	nsSep := l.NamespaceSeparator
@@ -94,14 +119,14 @@ func (l Loader) loadEnv(
 	if tType.Kind() == reflect.Ptr {
 		if tVal.IsNil() {
 			structVal := reflect.New(tType.Elem())
-			loadedAny, err = l.loadEnv(prefix, structVal.Interface(),
-				lookupEnvFn, parentRequired, true)
+			loadedAny, err = l.loadFromEnv(lookupPrefix, structVal.Interface(),
+				parentIsRequired, true, fieldDocs)
 			if loadedAny {
 				tVal.Set(structVal)
 			}
 		} else {
-			loadedAny, err = l.loadEnv(prefix, tVal.Interface(),
-				lookupEnvFn, parentRequired, reqSuppress)
+			loadedAny, err = l.loadFromEnv(lookupPrefix, tVal.Interface(),
+				parentIsRequired, reqCancel, fieldDocs)
 		}
 		return
 	}
@@ -162,9 +187,33 @@ func (l Loader) loadEnv(
 				if fTagOpts.NoPrefix {
 					lookupKey = fTagName
 				} else {
-					lookupKey = prefix + fTagName
+					lookupKey = lookupPrefix + fTagName
 				}
-				if strVal, exists := lookupEnvFn(lookupKey); exists {
+				if fieldDocs != nil {
+					var desc string
+					if fd, ok := target.(fieldDescriptionsProvider); ok {
+						fieldDescs := fd.StevFieldDescriptions()
+						desc, ok = fieldDescs[fInfo.Name]
+						if !ok {
+							desc = fieldDescs[fTagName]
+						}
+					}
+					//TODO: use our own interface for converting the values from/to string
+					var defVal string
+					if fType.Kind() == reflect.Ptr && fVal.IsNil() {
+						defVal = ""
+					} else {
+						defVal = fmt.Sprintf("%v", fVal.Interface())
+					}
+					*fieldDocs = append(*fieldDocs, FieldDocs{
+						LookupKey:   lookupKey,
+						DataType:    fType.String(),
+						Required:    fTagOpts.Required,
+						Description: desc,
+						Value:       defVal,
+					})
+				}
+				if strVal, exists := lookupEnv(lookupKey); exists {
 					fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 					if err != nil {
 						return loadedAny, fmt.Errorf("unable to load field value (field %s key %s): %w",
@@ -177,16 +226,16 @@ func (l Loader) loadEnv(
 
 			var fieldPrefix string
 			if fTagOpts.Squash {
-				fieldPrefix = prefix
+				fieldPrefix = lookupPrefix
 			} else {
 				if fTagOpts.NoPrefix {
 					fieldPrefix = fTagName + nsSep
 				} else {
-					fieldPrefix = prefix + fTagName + nsSep
+					fieldPrefix = lookupPrefix + fTagName + nsSep
 				}
 			}
-			fieldLoaded, err := l.loadEnv(fieldPrefix, fVal.Addr().Interface(),
-				lookupEnvFn, fTagOpts.Required || parentRequired, true)
+			fieldLoaded, err := l.loadFromEnv(fieldPrefix, fVal.Addr().Interface(),
+				fTagOpts.Required || parentIsRequired, true, fieldDocs)
 			if err != nil {
 				return loadedAny, fmt.Errorf("unable to load field value (field %s key %s*): %w",
 					fInfo.Name, fieldPrefix, err)
@@ -206,12 +255,12 @@ func (l Loader) loadEnv(
 			}
 			var fmBasePrefix string
 			if fTagOpts.Squash {
-				fmBasePrefix = prefix
+				fmBasePrefix = lookupPrefix
 			} else {
 				if fTagOpts.NoPrefix {
 					fmBasePrefix = fTagName + nsSep
 				} else {
-					fmBasePrefix = prefix + fTagName + nsSep
+					fmBasePrefix = lookupPrefix + fTagName + nsSep
 				}
 			}
 			for fMapKey, fMapValue := range fMap {
@@ -225,8 +274,8 @@ func (l Loader) loadEnv(
 					return false, fmt.Errorf("requires settable target (field %s key %s)", fInfo.Name, fMapKey)
 				}
 				fmPrefix := fmBasePrefix + strings.ToUpper(fMapKey) + nsSep
-				mapEntryLoaded, err := l.loadEnv(fmPrefix, fmVal.Interface(),
-					lookupEnvFn, fTagOpts.Required || parentRequired, true)
+				mapEntryLoaded, err := l.loadFromEnv(fmPrefix, fmVal.Interface(),
+					fTagOpts.Required || parentIsRequired, true, fieldDocs)
 				if err != nil {
 					return loadedAny, fmt.Errorf("map entry loading failed: %w (field %s key %s)",
 						err, fInfo.Name, fMapKey)
@@ -248,9 +297,33 @@ func (l Loader) loadEnv(
 		if fTagOpts.NoPrefix {
 			lookupKey = fTagName
 		} else {
-			lookupKey = prefix + fTagName
+			lookupKey = lookupPrefix + fTagName
 		}
-		if strVal, exists := lookupEnvFn(lookupKey); exists {
+		if fieldDocs != nil {
+			var desc string
+			if fd, ok := target.(fieldDescriptionsProvider); ok {
+				fieldDescs := fd.StevFieldDescriptions()
+				desc, ok = fieldDescs[fInfo.Name]
+				if !ok {
+					desc = fieldDescs[fTagName]
+				}
+			}
+			//TODO: use our own interface for converting the values from/to string
+			var defVal string
+			if fType.Kind() == reflect.Ptr && fVal.IsNil() {
+				defVal = ""
+			} else {
+				defVal = fmt.Sprintf("%v", fVal.Interface())
+			}
+			*fieldDocs = append(*fieldDocs, FieldDocs{
+				LookupKey:   lookupKey,
+				DataType:    fType.String(),
+				Required:    fTagOpts.Required,
+				Description: desc,
+				Value:       defVal,
+			})
+		}
+		if strVal, exists := lookupEnv(lookupKey); exists {
 			fieldLoaded, err := l.loadFieldValue(strVal, fVal)
 			if err != nil {
 				return loadedAny, fmt.Errorf("unable to load field value (field %s key %s): %w",
@@ -259,8 +332,8 @@ func (l Loader) loadEnv(
 			loadedAny = loadedAny || fieldLoaded
 			continue
 		} else {
-			if fTagOpts.Required {
-				if parentRequired || !reqSuppress {
+			if !docsMode && fTagOpts.Required {
+				if parentIsRequired || !reqCancel {
 					return loadedAny, fmt.Errorf("field is required (field %s key %s)",
 						fInfo.Name, lookupKey)
 				}
@@ -269,7 +342,7 @@ func (l Loader) loadEnv(
 		}
 	}
 
-	if loadedAny && len(unsatisfiedFields) > 0 {
+	if !docsMode && loadedAny && len(unsatisfiedFields) > 0 {
 		return loadedAny, fmt.Errorf("fields are required %v", unsatisfiedFields)
 	}
 
@@ -412,4 +485,20 @@ func parseFieldTagOpts(str string) (fieldTagOpts, error) {
 		}
 	}
 	return opts, nil
+}
+
+type FieldDocs struct {
+	LookupKey   string
+	DataType    string
+	Required    bool
+	Description string
+	// The value as provided through the skeleton. This might be
+	// the default or the suggested value.
+	Value string
+	//TODO: default value
+	//TODO: path to the field
+}
+
+type fieldDescriptionsProvider interface {
+	StevFieldDescriptions() map[string]string
 }
