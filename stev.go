@@ -285,18 +285,27 @@ func (l Loader) loadFromEnv(
 		}
 		if fieldDocs != nil {
 			var desc string
-			if fd, ok := target.(fieldDescriptionsProvider); ok {
+			if fd, ok := target.(namespacedFieldDescriptionsProvider); ok {
 				fieldDescs := fd.StevFieldDescriptions()
 				desc, ok = fieldDescs[fInfo.Name]
 				if !ok {
 					desc = fieldDescs[fTagName]
 				}
 			}
+			if desc == "" {
+				if fd, ok := target.(fieldDescriptionsProvider); ok {
+					fieldDescs := fd.FieldDescriptions()
+					desc, ok = fieldDescs[fInfo.Name]
+					if !ok {
+						desc = fieldDescs[fTagName]
+					}
+				}
+			}
 			//TODO: use our own interface for converting the values from/to string
 			var defVal string
 			if fType.Kind() == reflect.Ptr && fVal.IsNil() {
 				defVal = ""
-			} else {
+			} else if !fVal.IsZero() {
 				defVal = fmt.Sprintf("%v", fVal.Interface())
 			}
 			*fieldDocs = append(*fieldDocs, FieldDocs{
@@ -483,6 +492,10 @@ type FieldDocs struct {
 	Path  string
 }
 
-type fieldDescriptionsProvider interface {
+type namespacedFieldDescriptionsProvider interface {
 	StevFieldDescriptions() map[string]string
+}
+
+type fieldDescriptionsProvider interface {
+	FieldDescriptions() map[string]string
 }
