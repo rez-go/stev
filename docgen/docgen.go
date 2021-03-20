@@ -3,13 +3,20 @@ package docgen
 import (
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 
 	"github.com/rez-go/stev"
 )
 
 type EnvTemplateOptions struct {
-	RegionTitle string
 	FieldPrefix string
+
+	// By default, the fields are sorted alphabetically by the keys. If it's
+	// prefered to keep their order as found in the structs, set this option
+	// to true.
+	OriginalOrdering bool
+
 	// By default, there won't be values in the generated template. If this
 	// option is set to true, then any field in the skeleton which value is
 	// set, that value will be used as the value of the field in the generated
@@ -27,8 +34,10 @@ func WriteEnvTemplate(
 		panic(err)
 	}
 
-	if opts.RegionTitle != "" {
-		fmt.Fprintf(writer, "#region %s\n", opts.RegionTitle)
+	if !opts.OriginalOrdering {
+		sort.Slice(fieldDocs, func(i, j int) bool {
+			return strings.Compare(fieldDocs[i].LookupKey, fieldDocs[j].LookupKey) < 0
+		})
 	}
 
 	for _, fd := range fieldDocs {
@@ -49,10 +58,6 @@ func WriteEnvTemplate(
 		} else {
 			fmt.Fprintf(writer, "%s=\n", fd.LookupKey)
 		}
-	}
-
-	if opts.RegionTitle != "" {
-		fmt.Fprintf(writer, "\n#endregion\n")
 	}
 
 	return nil
