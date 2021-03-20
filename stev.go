@@ -20,12 +20,12 @@ var LoadEnv = LoadFromEnv
 
 func Docs(prefix string, structure interface{}) ([]FieldDocs, error) {
 	l := defaultLoader
-	allKeys := []FieldDocs{}
-	_, err := l.loadFromEnv(prefix, structure, false, false, &allKeys)
+	fieldDocs := []FieldDocs{}
+	_, err := l.loadFromEnv(prefix, structure, false, false, "", &fieldDocs)
 	if err != nil {
 		return nil, err
 	}
-	return allKeys, nil
+	return fieldDocs, nil
 }
 
 // EnvLookupFunc is a function signature which can be satisfied by os.LookupEnv.
@@ -69,7 +69,7 @@ var defaultLoader = Loader{
 
 // LoadFromEnv loads values into target from environment variables.
 func (l Loader) LoadFromEnv(prefix string, target interface{}) error {
-	_, err := l.loadFromEnv(prefix, target, false, false, nil)
+	_, err := l.loadFromEnv(prefix, target, false, false, "", nil)
 	if err != nil {
 		return fmt.Errorf("stev: %w", err)
 	}
@@ -94,6 +94,7 @@ func (l Loader) loadFromEnv(
 	target interface{},
 	parentIsRequired bool,
 	reqCancel bool,
+	fieldPath string,
 	fieldDocs *[]FieldDocs,
 ) (loadedAny bool, err error) {
 	lookupEnv := l.lookupEnv
@@ -120,13 +121,13 @@ func (l Loader) loadFromEnv(
 		if tVal.IsNil() {
 			structVal := reflect.New(tType.Elem())
 			loadedAny, err = l.loadFromEnv(lookupPrefix, structVal.Interface(),
-				parentIsRequired, true, fieldDocs)
+				parentIsRequired, true, fieldPath, fieldDocs)
 			if loadedAny {
 				tVal.Set(structVal)
 			}
 		} else {
 			loadedAny, err = l.loadFromEnv(lookupPrefix, tVal.Interface(),
-				parentIsRequired, reqCancel, fieldDocs)
+				parentIsRequired, reqCancel, fieldPath, fieldDocs)
 		}
 		return
 	}
@@ -211,6 +212,7 @@ func (l Loader) loadFromEnv(
 						Required:    fTagOpts.Required,
 						Description: desc,
 						Value:       defVal,
+						Path:        fieldPath + "." + fInfo.Name,
 					})
 				}
 				if strVal, exists := lookupEnv(lookupKey); exists {
@@ -235,7 +237,7 @@ func (l Loader) loadFromEnv(
 				}
 			}
 			fieldLoaded, err := l.loadFromEnv(fieldPrefix, fVal.Addr().Interface(),
-				fTagOpts.Required || parentIsRequired, true, fieldDocs)
+				fTagOpts.Required || parentIsRequired, true, fieldPath+"."+fInfo.Name, fieldDocs)
 			if err != nil {
 				return loadedAny, fmt.Errorf("unable to load field value (field %s key %s*): %w",
 					fInfo.Name, fieldPrefix, err)
@@ -275,7 +277,7 @@ func (l Loader) loadFromEnv(
 				}
 				fmPrefix := fmBasePrefix + strings.ToUpper(fMapKey) + nsSep
 				mapEntryLoaded, err := l.loadFromEnv(fmPrefix, fmVal.Interface(),
-					fTagOpts.Required || parentIsRequired, true, fieldDocs)
+					fTagOpts.Required || parentIsRequired, true, fieldPath+"."+fInfo.Name, fieldDocs)
 				if err != nil {
 					return loadedAny, fmt.Errorf("map entry loading failed: %w (field %s key %s)",
 						err, fInfo.Name, fMapKey)
@@ -321,6 +323,7 @@ func (l Loader) loadFromEnv(
 				Required:    fTagOpts.Required,
 				Description: desc,
 				Value:       defVal,
+				Path:        fieldPath + "." + fInfo.Name,
 			})
 		}
 		if strVal, exists := lookupEnv(lookupKey); exists {
@@ -495,8 +498,7 @@ type FieldDocs struct {
 	// The value as provided through the skeleton. This might be
 	// the default or the suggested value.
 	Value string
-	//TODO: default value
-	//TODO: path to the field
+	Path  string
 }
 
 type fieldDescriptionsProvider interface {
