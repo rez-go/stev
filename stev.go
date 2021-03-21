@@ -313,7 +313,7 @@ func (l Loader) loadFromEnv(
 				LookupKey:   lookupKey,
 				DataType:    fType.String(),
 				Required:    fTagOpts.Required,
-				Description: desc,
+				Description: strings.TrimSpace(desc),
 				Value:       defVal,
 				Path:        fieldPath + "." + fInfo.Name,
 			})

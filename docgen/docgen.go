@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mitchellh/go-wordwrap"
 	"github.com/rez-go/stev"
 )
 
@@ -43,7 +44,11 @@ func WriteEnvTemplate(
 	for _, fd := range fieldDocs {
 		fmt.Fprintf(writer, "\n")
 		if fd.Description != "" {
-			fmt.Fprintf(writer, "# %s\n#\n", fd.Description)
+			descLines := strings.Split(wordwrap.WrapString(fd.Description, 72), "\n")
+			for _, l := range descLines {
+				fmt.Fprintln(writer, "#", l)
+			}
+			fmt.Fprintln(writer, "#")
 		}
 		if fd.Required {
 			fmt.Fprintf(writer, "# required\n")
