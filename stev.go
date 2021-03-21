@@ -284,7 +284,7 @@ func (l Loader) loadFromEnv(
 		} else {
 			lookupKey = lookupPrefix + fTagName
 		}
-		if fieldDocs != nil {
+		if !fTagOpts.DocsHidden && fieldDocs != nil {
 			var desc string
 			if fd, ok := target.(namespacedFieldDescriptionsProvider); ok {
 				fieldDescs := fd.StevFieldDescriptions()
@@ -461,6 +461,9 @@ type fieldTagOpts struct {
 	Squash   bool
 	Required bool
 	Map      bool // Only for maps
+
+	// Don't show the entry in the docs.
+	DocsHidden bool
 }
 
 func parseFieldTagOpts(str string) (fieldTagOpts, error) {
@@ -477,6 +480,8 @@ func parseFieldTagOpts(str string) (fieldTagOpts, error) {
 			opts.Required = true
 		case "map":
 			opts.Map = true
+		case "docs_hidden":
+			opts.DocsHidden = true
 		}
 	}
 	return opts, nil

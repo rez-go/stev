@@ -23,6 +23,9 @@ type EnvTemplateOptions struct {
 	// set, that value will be used as the value of the field in the generated
 	// template.
 	IncludeSkeletonValues bool
+
+	// If set to true, the path to each field will be printed in the output.
+	ShowPaths bool
 }
 
 func WriteEnvTemplate(
@@ -57,7 +60,9 @@ func WriteEnvTemplate(
 		if !opts.IncludeSkeletonValues && fd.Value != "" {
 			fmt.Fprintf(writer, "#  def: %s\n", fd.Value)
 		}
-		fmt.Fprintf(writer, "# path: %s\n", fd.Path)
+		if opts.ShowPaths {
+			fmt.Fprintf(writer, "# path: %s\n", fd.Path)
+		}
 		if opts.IncludeSkeletonValues {
 			fmt.Fprintf(writer, "%s=%s\n", fd.LookupKey, fd.Value) //TODO: escape? quote?
 		} else {
