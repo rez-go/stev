@@ -232,9 +232,8 @@ func (l Loader) loadFromEnv(
 		}
 
 		if fType.Kind() == reflect.Map && fTagOpts.Map {
-			fMap, ok := fVal.Interface().(map[string]interface{})
-			if !ok {
-				return loadedAny, fmt.Errorf("map requires an instance of type map[string]interface{}")
+			if fType.Key().Kind() != reflect.String {
+				return loadedAny, fmt.Errorf("map requires an instance of map with string key")
 			}
 			var fmBasePrefix string
 			if fTagOpts.Squash {
@@ -246,7 +245,9 @@ func (l Loader) loadFromEnv(
 					fmBasePrefix = lookupPrefix + fTagName + nsSep
 				}
 			}
-			for mapEntryKey, mapEntryVal := range fMap {
+			for _, entryKey := range fVal.MapKeys() {
+				mapEntryKey := entryKey.Interface().(string)
+				mapEntryVal := fVal.MapIndex(entryKey).Interface()
 				rmeVal := reflect.ValueOf(mapEntryVal)
 				rmeType := rmeVal.Type()
 				if rmeType.Kind() != reflect.Ptr {
