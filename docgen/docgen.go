@@ -57,6 +57,12 @@ func WriteEnvTemplate(
 			fmt.Fprintf(writer, "# required\n")
 		}
 		fmt.Fprintf(writer, "# type: %s\n", fd.DataType)
+		if len(fd.AvailableValues) > 0 {
+			fmt.Fprintf(writer, "# available values:\n")
+			for enumVal := range fd.AvailableValues {
+				fmt.Fprintf(writer, "#   %s\n", enumVal)
+			}
+		}
 		if !opts.IncludeSkeletonValues && fd.Value != "" {
 			fmt.Fprintf(writer, "#  def: %s\n", fd.Value)
 		}

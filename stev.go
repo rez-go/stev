@@ -286,11 +286,25 @@ func (l Loader) loadFromEnv(
 		}
 		if !fTagOpts.DocsHidden && fieldDocs != nil {
 			var desc string
-			if fd, ok := target.(namespacedFieldDescriptionsProvider); ok {
-				fieldDescs := fd.StevFieldDescriptions()
-				desc, ok = fieldDescs[fInfo.Name]
-				if !ok {
-					desc = fieldDescs[fTagName]
+			var descriptor *FieldDocsDescriptor
+			var availableValues map[string]EnumValueDocs
+			if fd, ok := target.(fieldDocsDescriptorProvider); ok {
+				descriptor = fd.FieldDocsDescriptor(fInfo.Name)
+				if descriptor == nil {
+					descriptor = fd.FieldDocsDescriptor(fTagName)
+				}
+				if descriptor != nil {
+					desc = descriptor.Description
+					availableValues = descriptor.AvailableValues
+				}
+			}
+			if desc == "" {
+				if fd, ok := target.(namespacedFieldDescriptionsProvider); ok {
+					fieldDescs := fd.StevFieldDescriptions()
+					desc, ok = fieldDescs[fInfo.Name]
+					if !ok {
+						desc = fieldDescs[fTagName]
+					}
 				}
 			}
 			if desc == "" {
@@ -310,12 +324,13 @@ func (l Loader) loadFromEnv(
 				defVal = fmt.Sprintf("%v", fVal.Interface())
 			}
 			*fieldDocs = append(*fieldDocs, FieldDocs{
-				LookupKey:   lookupKey,
-				DataType:    fType.String(),
-				Required:    fTagOpts.Required,
-				Description: strings.TrimSpace(desc),
-				Value:       defVal,
-				Path:        fieldPath + "." + fInfo.Name,
+				LookupKey:       lookupKey,
+				DataType:        fType.String(),
+				Required:        fTagOpts.Required,
+				Description:     strings.TrimSpace(desc),
+				Value:           defVal,
+				Path:            fieldPath + "." + fInfo.Name,
+				AvailableValues: availableValues,
 			})
 		}
 		if strVal, exists := lookupEnv(lookupKey); exists {
@@ -462,7 +477,9 @@ type fieldTagOpts struct {
 	Required bool
 	Map      bool // Only for maps
 
-	// Don't show the entry in the docs.
+	// Don't show the entry in the docs. This could be useful for
+	// tuning fields to prevent them from distracting from the necessary
+	// fields.
 	DocsHidden bool
 }
 
@@ -492,10 +509,29 @@ type FieldDocs struct {
 	DataType    string
 	Required    bool
 	Description string
+
 	// The value as provided through the skeleton. This might be
 	// the default or the suggested value.
 	Value string
-	Path  string
+
+	// Some fields' value is based on, e.g., registered components. This
+	// field contains the available options, e.g., which component to use.
+	//
+	// The key is the option.
+	AvailableValues map[string]EnumValueDocs
+
+	Path string
+}
+
+type FieldDocsDescriptor struct {
+	Description string
+	// The key is the the available value.
+	AvailableValues map[string]EnumValueDocs
+}
+
+// EnumValueDocs holds information about an enumerated value.
+type EnumValueDocs struct {
+	Description string
 }
 
 type namespacedFieldDescriptionsProvider interface {
@@ -504,4 +540,8 @@ type namespacedFieldDescriptionsProvider interface {
 
 type fieldDescriptionsProvider interface {
 	FieldDescriptions() map[string]string
+}
+
+type fieldDocsDescriptorProvider interface {
+	FieldDocsDescriptor(fieldName string) *FieldDocsDescriptor
 }
