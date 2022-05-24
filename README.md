@@ -20,7 +20,7 @@ It has dummy configuration structs. To generate its config template,
 run:
 
 ```sh
-$ go run examples/main.go env_file_template
+$ go run examples/basic_docgen.go env_file_template
 ```
 
 The template will be printed out to the stdout.
