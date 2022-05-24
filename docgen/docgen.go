@@ -18,12 +18,6 @@ type EnvTemplateOptions struct {
 	// to true.
 	OriginalOrdering bool
 
-	// By default, there won't be values in the generated template. If this
-	// option is set to true, then any field in the skeleton which value is
-	// set, that value will be used as the value of the field in the generated
-	// template.
-	IncludeSkeletonValues bool
-
 	// If set to true, the path to each field will be printed in the output.
 	ShowPaths bool
 }
@@ -63,16 +57,15 @@ func WriteEnvTemplate(
 				fmt.Fprintf(writer, "#   %s\n", enumVal)
 			}
 		}
-		if !opts.IncludeSkeletonValues && fd.Value != "" {
-			fmt.Fprintf(writer, "#  def: %s\n", fd.Value)
-		}
 		if opts.ShowPaths {
 			fmt.Fprintf(writer, "# path: %s\n", fd.Path)
 		}
-		if opts.IncludeSkeletonValues {
-			fmt.Fprintf(writer, "%s=%s\n", fd.LookupKey, fd.Value) //TODO: escape? quote?
-		} else {
+		if fd.Value != "" {
+			fmt.Fprintf(writer, "# %s=%s\n", fd.LookupKey, fd.Value) //TODO: escape? quote?
+		} else if fd.Required {
 			fmt.Fprintf(writer, "%s=\n", fd.LookupKey)
+		} else {
+			fmt.Fprintf(writer, "# %s=\n", fd.LookupKey)
 		}
 	}
 
