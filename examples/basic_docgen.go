@@ -40,7 +40,7 @@ func main() {
 }
 
 func genConfigTemplate(prefix string, skeleton ServiceClientConfig) {
-	err := docgen.WriteEnvTemplate(os.Stdout, &skeleton, docgen.EnvTemplateOptions{
+	err := docgen.WriteEnvTemplate(os.Stdout, &skeleton, docgen.EnvTemplateWriteOptions{
 		FieldPrefix: prefix,
 	})
 	if err != nil {

@@ -10,7 +10,7 @@ import (
 	"github.com/rez-go/stev"
 )
 
-type EnvTemplateOptions struct {
+type EnvTemplateWriteOptions struct {
 	FieldPrefix string
 
 	// By default, the fields are sorted alphabetically by the keys. If it's
@@ -22,10 +22,11 @@ type EnvTemplateOptions struct {
 	ShowPaths bool
 }
 
+// WriteEnvTemplate writes the template passed as `skeleton` through `writer`.
 func WriteEnvTemplate(
 	writer io.Writer,
 	skeleton interface{},
-	opts EnvTemplateOptions,
+	opts EnvTemplateWriteOptions,
 ) error {
 	fieldDocs, err := stev.Docs(opts.FieldPrefix, skeleton)
 	if err != nil {
