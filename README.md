@@ -31,6 +31,8 @@ to generate its accurate configuration template. Your application could use
 other command or method to trigger it. The key is to call
 `docgen.WriteEnvTemplate`.
 
+For more complex example, look at [kadisoka-framework](https://github.com/kadisoka/kadisoka-framework/blob/master/apps/iam-standalone-server/etc/iam-server/secrets/config.env.example).
+
 Summary of features
 
 - Loading environment variable values into a struct
