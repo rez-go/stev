@@ -64,7 +64,14 @@ func WriteEnvTemplate(
 			sort.Strings(enumVals)
 
 			for _, enumVal := range enumVals {
-				fmt.Fprintf(writer, "#   %s\n", enumVal)
+				docs := fd.AvailableValues[enumVal]
+				if docs.ShortDesc != "" {
+					fmt.Fprintf(writer,
+						"#   %s - %s\n",
+						enumVal, docs.ShortDesc)
+				} else {
+					fmt.Fprintf(writer, "#   %s\n", enumVal)
+				}
 			}
 		}
 		if opts.ShowPaths {

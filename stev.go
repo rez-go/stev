@@ -531,6 +531,7 @@ type FieldDocsDescriptor struct {
 }
 
 type SelfDocsDescriptor struct {
+	// SortDesc should be a line of 50 characters or less.
 	ShortDesc string
 }
 
@@ -548,6 +549,7 @@ func LoadSelfDocsDescriptor(
 
 // EnumValueDocs holds information about an enumerated value.
 type EnumValueDocs struct {
+	// SortDesc should be a line of 50 characters or less.
 	ShortDesc string
 }
 
