@@ -523,10 +523,24 @@ type FieldDocs struct {
 	Path string
 }
 
+// FieldDocsDescriptor provides detailed information for a field.
 type FieldDocsDescriptor struct {
 	Description string
 	// The key is the the available value.
 	AvailableValues map[string]EnumValueDocs
+}
+
+// LoadFieldDocsDescriptor attempts to load the docs-descriptor for field
+// referenced by fieldName from a struct that implements
+// FieldDocsDescriptor method.
+func LoadFieldDocsDescriptor(
+	skeleton interface{},
+	fieldName string,
+) *FieldDocsDescriptor {
+	if fd, ok := skeleton.(fieldDocsDescriptorProvider); ok {
+		return fd.FieldDocsDescriptor(fieldName)
+	}
+	return nil
 }
 
 // EnumValueDocs holds information about an enumerated value.

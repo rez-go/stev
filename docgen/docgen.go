@@ -54,7 +54,16 @@ func WriteEnvTemplate(
 		fmt.Fprintf(writer, "# type: %s\n", fd.DataType)
 		if len(fd.AvailableValues) > 0 {
 			fmt.Fprintf(writer, "# available values:\n")
-			for enumVal := range fd.AvailableValues {
+
+			enumVals := make([]string, len(fd.AvailableValues))
+			i := 0
+			for k := range fd.AvailableValues {
+				enumVals[i] = k
+				i++
+			}
+			sort.Strings(enumVals)
+
+			for _, enumVal := range enumVals {
 				fmt.Fprintf(writer, "#   %s\n", enumVal)
 			}
 		}
