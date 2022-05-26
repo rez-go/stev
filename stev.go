@@ -530,32 +530,41 @@ type FieldDocsDescriptor struct {
 	AvailableValues map[string]EnumValueDocs
 }
 
-// LoadFieldDocsDescriptor attempts to load the docs-descriptor for field
-// referenced by fieldName from a struct that implements
-// FieldDocsDescriptor method.
-func LoadFieldDocsDescriptor(
+type SelfDocsDescriptor struct {
+	ShortDesc string
+}
+
+// LoadSelfDocsDescriptor attempts to load the docs-descriptor of a struct
+// that implements SelfDocsDescriptor method.
+func LoadSelfDocsDescriptor(
 	skeleton interface{},
-	fieldName string,
-) *FieldDocsDescriptor {
-	if fd, ok := skeleton.(fieldDocsDescriptorProvider); ok {
-		return fd.FieldDocsDescriptor(fieldName)
+) *SelfDocsDescriptor {
+	if fd, ok := skeleton.(selfDocsDescriptorProvider); ok {
+		v := fd.SelfDocsDescriptor()
+		return &v
 	}
 	return nil
 }
 
 // EnumValueDocs holds information about an enumerated value.
 type EnumValueDocs struct {
-	Description string
+	ShortDesc string
 }
 
 type namespacedFieldDescriptionsProvider interface {
+	//NOTE: deprecated
 	StevFieldDescriptions() map[string]string
 }
 
 type fieldDescriptionsProvider interface {
+	//NOTE: deprecated
 	FieldDescriptions() map[string]string
 }
 
 type fieldDocsDescriptorProvider interface {
 	FieldDocsDescriptor(fieldName string) *FieldDocsDescriptor
+}
+
+type selfDocsDescriptorProvider interface {
+	SelfDocsDescriptor() SelfDocsDescriptor
 }
