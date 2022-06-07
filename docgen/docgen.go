@@ -53,7 +53,7 @@ func WriteEnvTemplate(
 		}
 		fmt.Fprintf(writer, "# type: %s\n", fd.DataType)
 		if len(fd.AvailableValues) > 0 {
-			fmt.Fprintf(writer, "# available values:\n")
+			fmt.Fprintf(writer, "\n# Available values:\n")
 
 			keyLenMax := 0
 			enumVals := make([]string, len(fd.AvailableValues))
@@ -76,7 +76,7 @@ func WriteEnvTemplate(
 				docs := fd.AvailableValues[enumVal]
 				if docs.ShortDesc != "" {
 					fmt.Fprintf(writer,
-						"#   %-*s  %s\n",
+						"#   %-*s   %s\n",
 						keyLenMax, enumVal, docs.ShortDesc)
 				} else {
 					fmt.Fprintf(writer, "#   %s\n", enumVal)
