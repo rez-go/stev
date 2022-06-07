@@ -55,20 +55,29 @@ func WriteEnvTemplate(
 		if len(fd.AvailableValues) > 0 {
 			fmt.Fprintf(writer, "# available values:\n")
 
+			keyLenMax := 0
 			enumVals := make([]string, len(fd.AvailableValues))
 			i := 0
 			for k := range fd.AvailableValues {
 				enumVals[i] = k
 				i++
+
+				if len(k) > keyLenMax {
+					keyLenMax = len(k)
+				}
 			}
 			sort.Strings(enumVals)
+
+			if keyLenMax > 14 {
+				keyLenMax = 14
+			}
 
 			for _, enumVal := range enumVals {
 				docs := fd.AvailableValues[enumVal]
 				if docs.ShortDesc != "" {
 					fmt.Fprintf(writer,
-						"#   %s - %s\n",
-						enumVal, docs.ShortDesc)
+						"#   %-*s  %s\n",
+						keyLenMax, enumVal, docs.ShortDesc)
 				} else {
 					fmt.Fprintf(writer, "#   %s\n", enumVal)
 				}
