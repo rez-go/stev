@@ -76,8 +76,9 @@ func (l Loader) LoadFromEnv(prefix string, target interface{}) error {
 	return nil
 }
 
-// LoadEnv loads values into target from environment variables. Deprecated.
-// Use LoadFromEnv.
+// LoadEnv loads values into target from environment variables.
+//
+// Deprecated: Use LoadFromEnv.
 func (l Loader) LoadEnv(prefix string, target interface{}) error {
 	return l.LoadFromEnv(prefix, target)
 }
