@@ -16,6 +16,9 @@ func LoadFromEnv(prefix string, target interface{}) error {
 	return defaultLoader.LoadFromEnv(prefix, target)
 }
 
+// LoadEnv is an alias for LoadFromEnv for backward compatibility.
+//
+// Deprecated: Please use LoadFromEnv instead.
 var LoadEnv = LoadFromEnv
 
 func Docs(prefix string, structure interface{}) ([]FieldDocs, error) {
