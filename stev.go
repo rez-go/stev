@@ -86,8 +86,6 @@ func (l Loader) LoadEnv(prefix string, target interface{}) error {
 	return l.LoadFromEnv(prefix, target)
 }
 
-type lookupEnvFunc = func(string) (string, bool)
-
 type fieldKey struct {
 	fieldName string
 	lookupKey string
@@ -329,7 +327,7 @@ func (l Loader) loadFromEnv(
 					defVal = fVal.Elem().String()
 				}
 			} else if !fVal.IsZero() {
-				defVal = fVal.String()
+				defVal = fmt.Sprintf("%v", fVal.Interface())
 			}
 			*fieldDocs = append(*fieldDocs, FieldDocs{
 				LookupKey:       lookupKey,
