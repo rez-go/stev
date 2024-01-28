@@ -36,7 +36,7 @@ type EnvLookupFunc = func(key string) (value string, ok bool)
 
 // Loader is [TBD]
 //
-//TODO: config: field error ignore (best effort), no override,
+// TODO: config: field error ignore (best effort), no override,
 // tag name conversion (e.g., from FieldName to FIELD_NAME), ignore untagged
 type Loader struct {
 	StructFieldTagKey      string
@@ -322,10 +322,14 @@ func (l Loader) loadFromEnv(
 			}
 			//TODO: use our own interface for converting the values from/to string
 			var defVal string
-			if fType.Kind() == reflect.Ptr && fVal.IsNil() {
-				defVal = ""
+			if fType.Kind() == reflect.Ptr {
+				if fVal.IsNil() {
+					defVal = ""
+				} else {
+					defVal = fVal.Elem().String()
+				}
 			} else if !fVal.IsZero() {
-				defVal = fmt.Sprintf("%v", fVal.Interface())
+				defVal = fVal.String()
 			}
 			*fieldDocs = append(*fieldDocs, FieldDocs{
 				LookupKey:       lookupKey,
