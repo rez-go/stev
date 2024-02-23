@@ -324,7 +324,7 @@ func (l Loader) loadFromEnv(
 				if fVal.IsNil() {
 					defVal = ""
 				} else {
-					defVal = fVal.Elem().String()
+					defVal = fmt.Sprintf("%v", fVal.Elem())
 				}
 			} else if !fVal.IsZero() {
 				defVal = fmt.Sprintf("%v", fVal.Interface())
